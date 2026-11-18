@@ -1,0 +1,227 @@
+openapi: 3.1.2
+info:
+  title: Service reservations
+  version: 1.1.0
+  description: >
+    Réservation d'une salle pour un créneau. Pour créer une réservation,
+    le service appelle le catalogue (salle, capacité, prix), puis les
+    disponibilités (blocage du créneau), enregistre la réservation et
+    publie un message reservation.confirmee dans RabbitMQ (file durable
+    notifications.reservations, lue par le service notifications).
+    L'utilisateur est celui du jeton : la passerelle le transmet dans
+    l'en-tête X-Utilisateur. Les erreurs suivent la RFC 9457.
+servers:
+  - url: http://reservations:8080
+    description: Accès direct, depuis le réseau Docker Compose
+  - url: http://localhost:8080/api
+    description: >
+      À travers la passerelle (jeton exigé ; X-Utilisateur est alors
+      ajouté par la passerelle, le client ne l'envoie pas)
+security:
+  - jeton: []
+paths:
+  /reservations:
+    parameters:
+      - $ref: "#/components/parameters/Utilisateur"
+    get:
+      operationId: listerMesReservations
+      summary: Lister les réservations de l'utilisateur
+      responses:
+        "200":
+          description: Ses réservations, de la plus proche à la plus lointaine
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/Probleme"
+        "401":
+          $ref: "#/components/responses/NonAuthentifie"
+        "429":
+          $ref: "#/components/responses/TropDeRequetes"
+    post:
+      operationId: reserver
+      summary: Réserver une salle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Demande"
+      responses:
+        "201":
+          description: Réservation confirmée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "400":
+          $ref: "#/components/responses/Probleme"
+        "409":
+          $ref: "#/components/responses/Probleme"
+        "422":
+          $ref: "#/components/responses/Probleme"
+        "503":
+          $ref: "#/components/responses/Indisponible"
+        "401":
+          $ref: "#/components/responses/NonAuthentifie"
+        "429":
+          $ref: "#/components/responses/TropDeRequetes"
+  /reservations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Utilisateur"
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: lireReservation
+      summary: Lire une réservation de l'utilisateur
+      responses:
+        "200":
+          description: La réservation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reservation"
+        "404":
+          $ref: "#/components/responses/Probleme"
+        "401":
+          $ref: "#/components/responses/NonAuthentifie"
+        "429":
+          $ref: "#/components/responses/TropDeRequetes"
+components:
+  securitySchemes:
+    jeton:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Jeton RS256 vérifié par la passerelle. Les appels directs, sur le
+        réseau Docker Compose, ne sont pas contrôlés.
+  parameters:
+    Utilisateur:
+      name: X-Utilisateur
+      in: header
+      required: true
+      description: Sujet du jeton, ajouté par la passerelle
+      schema:
+        type: string
+      example: alice
+  responses:
+    NonAuthentifie:
+      description: >
+        Jeton absent, expiré ou invalide. Réponse de la passerelle, corps
+        vide, détail dans l'en-tête WWW-Authenticate.
+    TropDeRequetes:
+      description: >
+        Limite de débit atteinte (5 requêtes par seconde, rafale de 10,
+        par utilisateur et par route). Réponse de la passerelle, corps
+        vide, sans en-tête Retry-After.
+    Probleme:
+      description: >
+        Refus : 400 demande incomplète ou X-Utilisateur absent,
+        404 réservation inconnue, 409 créneau déjà occupé,
+        422 salle inconnue, capacité dépassée ou créneau invalide
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Probleme"
+    Indisponible:
+      description: >
+        Le catalogue ou les disponibilités n'ont pas répondu à temps,
+        même après de nouvelles tentatives, ou leur coupe-circuit est
+        ouvert (refus immédiat, avec l'en-tête Retry-After). Aucune
+        réservation n'est enregistrée.
+      headers:
+        Retry-After:
+          description: Secondes à attendre, quand le coupe-circuit est ouvert
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Probleme"
+  schemas:
+    Demande:
+      type: object
+      required: [salle_id, debut, fin, participants]
+      properties:
+        salle_id:
+          type: string
+          example: LYO-01
+        debut:
+          type: string
+          description: Date et heure locales, sans fuseau
+          example: "2026-11-16T14:00:00"
+        fin:
+          type: string
+          description: Date et heure locales, sans fuseau
+          example: "2026-11-16T16:00:00"
+        participants:
+          type: integer
+          minimum: 1
+          example: 6
+    Reservation:
+      type: object
+      required:
+        - id
+        - salle_id
+        - utilisateur
+        - debut
+        - fin
+        - participants
+        - montant
+        - statut
+        - cree_le
+      properties:
+        id:
+          type: string
+          format: uuid
+        salle_id:
+          type: string
+          example: LYO-01
+        utilisateur:
+          type: string
+          example: alice
+        debut:
+          type: string
+          example: "2026-11-16T14:00:00"
+        fin:
+          type: string
+          example: "2026-11-16T16:00:00"
+        participants:
+          type: integer
+          example: 6
+        montant:
+          type: number
+          description: Prix horaire de la salle multiplié par la durée
+          example: 90.00
+        statut:
+          type: string
+          enum: [CONFIRMEE]
+        cree_le:
+          type: string
+          format: date-time
+          example: "2026-10-21T14:13:30.22778Z"
+    Probleme:
+      type: object
+      description: Détail d'un problème (RFC 9457)
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+          example: Conflict
+        status:
+          type: integer
+          example: 409
+        detail:
+          type: string
+          example: Créneau déjà occupé
+        instance:
+          type: string
+          example: /reservations
