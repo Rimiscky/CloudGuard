@@ -1,2 +1,0 @@
-Ce dossier recoit la paire de cles de demonstration.
-Generez-la avant le premier demarrage : bash outils/generer-cles.sh
