@@ -1,0 +1,11 @@
+# Image de test : le code du service, ses dependances et celles des tests.
+# Lancement : docker compose run --rm tests-disponibilites
+FROM python:3.14.8-slim-trixie
+WORKDIR /app
+COPY requirements.txt requirements-tests.txt ./
+RUN pip install --no-cache-dir --root-user-action=ignore \
+    -r requirements.txt -r requirements-tests.txt
+COPY app/ .
+COPY openapi.yaml .
+COPY tests/ tests/
+CMD ["python", "-m", "pytest", "-q", "tests"]

@@ -1,0 +1,16 @@
+# Dependances des tests, en plus de requirements.txt
+pytest==9.1.1
+httpx2==2.16.0  # client du TestClient (Starlette 1.9 : httpx est deprecie)
+PyYAML==6.0.3  # lecture du contrat openapi.yaml
+jsonschema==4.26.0  # reponses comparees aux schemas du contrat
+# Dependances indirectes (pip freeze)
+attrs==26.1.0
+httpcore2==2.16.0
+iniconfig==2.3.1
+jsonschema-specifications==2025.9.1
+packaging==26.3
+pluggy==1.7.0
+Pygments==2.21.0
+referencing==0.37.0
+rpds-py==2026.9.1
+truststore==0.10.5
