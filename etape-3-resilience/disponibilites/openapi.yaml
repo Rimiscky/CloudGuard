@@ -1,0 +1,191 @@
+openapi: 3.1.2
+info:
+  title: Service disponibilites
+  version: 1.1.0
+  description: >
+    Créneaux occupés et créneaux libres des salles, de 8 h à 20 h,
+    tous les jours. Les heures sont locales à l'espace, sans fuseau.
+    La passerelle ne publie que GET /disponibilites/{salle_id} ;
+    /occupations n'est appelé que par le service reservations.
+servers:
+  - url: http://disponibilites:8000
+    description: Accès direct, depuis le réseau Docker Compose
+  - url: http://localhost:8080/api
+    description: >
+      À travers la passerelle (jeton exigé), pour
+      /disponibilites/{salle_id} seulement
+security:
+  - jeton: []
+paths:
+  /disponibilites/{salle_id}:
+    get:
+      operationId: lireDisponibilites
+      summary: Occupations et créneaux libres d'une salle pour un jour
+      parameters:
+        - name: salle_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: LYO-01
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-11-16"
+      responses:
+        "200":
+          description: Le planning du jour
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Planning"
+        "422":
+          description: Paramètre manquant ou date invalide (FastAPI)
+        "401":
+          $ref: "#/components/responses/NonAuthentifie"
+        "429":
+          $ref: "#/components/responses/TropDeRequetes"
+  /occupations:
+    post:
+      operationId: occuperCreneau
+      security: []  # interne
+      summary: Bloquer un créneau pour une réservation
+      description: >
+        Idempotent : la même demande rejouée (même reservation_id, même
+        salle, même créneau) reçoit 200 et ne bloque rien de plus. Le
+        service reservations peut donc la renvoyer sans risque.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Occupation"
+      responses:
+        "201":
+          description: Créneau bloqué
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Occupation"
+        "200":
+          description: Demande déjà reçue, créneau déjà bloqué pour elle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Occupation"
+        "409":
+          description: >
+            Le créneau chevauche une occupation existante, ce
+            reservation_id a déjà servi pour un autre créneau, ou sa
+            réservation a été annulée (demande arrivée en retard)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erreur"
+        "422":
+          description: >
+            Créneau hors des heures d'ouverture, sur deux jours,
+            ou corps invalide
+  /occupations/{reservation_id}:
+    delete:
+      operationId: libererCreneau
+      security: []  # interne
+      summary: Libérer le créneau d'une réservation
+      description: >
+        Compensation d'une réservation abandonnée. L'annulation est notée
+        même si rien n'était bloqué : une demande d'occupation pour ce
+        reservation_id, arrivée plus tard, sera refusée (409).
+      parameters:
+        - name: reservation_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Créneau libéré
+        "404":
+          description: Aucune occupation pour cette réservation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erreur"
+components:
+  securitySchemes:
+    jeton:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Jeton RS256 vérifié par la passerelle. Les appels directs, sur le
+        réseau Docker Compose, ne sont pas contrôlés.
+  responses:
+    NonAuthentifie:
+      description: >
+        Jeton absent, expiré ou invalide. Réponse de la passerelle, corps
+        vide, détail dans l'en-tête WWW-Authenticate.
+    TropDeRequetes:
+      description: >
+        Limite de débit atteinte (5 requêtes par seconde, rafale de 10,
+        par utilisateur et par route). Réponse de la passerelle, corps
+        vide, sans en-tête Retry-After.
+  schemas:
+    Creneau:
+      type: object
+      required: [debut, fin]
+      properties:
+        debut:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          example: "11:00"
+        fin:
+          type: string
+          pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          example: "16:00"
+    Planning:
+      type: object
+      required: [salle_id, date, occupations, creneaux_libres]
+      properties:
+        salle_id:
+          type: string
+          example: LYO-01
+        date:
+          type: string
+          format: date
+          example: "2026-11-16"
+        occupations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Creneau"
+        creneaux_libres:
+          type: array
+          items:
+            $ref: "#/components/schemas/Creneau"
+    Occupation:
+      type: object
+      required: [reservation_id, salle_id, debut, fin]
+      properties:
+        reservation_id:
+          type: string
+          example: b23d113d-f024-4b76-ad32-21a3731ca480
+        salle_id:
+          type: string
+          example: LYO-01
+        debut:
+          type: string
+          description: Date et heure locales, sans fuseau
+          example: "2026-11-16T14:00:00"
+        fin:
+          type: string
+          description: Date et heure locales, sans fuseau
+          example: "2026-11-16T16:00:00"
+    Erreur:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          example: Créneau déjà occupé
