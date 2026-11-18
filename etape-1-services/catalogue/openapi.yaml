@@ -1,0 +1,170 @@
+openapi: 3.1.2
+info:
+  title: Service catalogue
+  version: 1.0.0
+  description: >
+    Espaces, salles et équipements du réseau. Lecture seule.
+    Le service reservations l'appelle pour connaître la capacité
+    et le prix d'une salle.
+servers:
+  - url: http://localhost:3000
+    description: Depuis le poste (port publié par Docker Compose)
+  - url: http://catalogue:3000
+    description: Depuis le réseau Docker Compose (autres services)
+# Aucune authentification : le service est appele directement
+security: []
+paths:
+  /espaces:
+    get:
+      operationId: listerEspaces
+      summary: Lister les espaces du réseau
+      responses:
+        "200":
+          description: Les espaces, triés par identifiant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Espace"
+  /equipements:
+    get:
+      operationId: listerEquipements
+      summary: Lister les équipements possibles d'une salle
+      responses:
+        "200":
+          description: Les équipements, triés par code
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Equipement"
+  /salles:
+    get:
+      operationId: chercherSalles
+      summary: Chercher des salles (filtres facultatifs, cumulables)
+      parameters:
+        - name: ville
+          in: query
+          schema:
+            type: string
+          example: Lyon
+        - name: capacite_min
+          in: query
+          description: Nombre de places minimal
+          schema:
+            type: integer
+            minimum: 0
+          example: 6
+        - name: equipement
+          in: query
+          description: Code d'un équipement que la salle doit avoir
+          schema:
+            type: string
+          example: visio
+      responses:
+        "200":
+          description: Les salles qui passent tous les filtres
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Salle"
+        "400":
+          description: capacite_min n'est pas un entier positif
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erreur"
+  /salles/{id}:
+    get:
+      operationId: lireSalle
+      summary: Lire une salle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: LYO-01
+      responses:
+        "200":
+          description: La salle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Salle"
+        "404":
+          description: Salle inconnue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Erreur"
+components:
+  schemas:
+    Espace:
+      type: object
+      required: [id, nom, ville, quartier]
+      properties:
+        id:
+          type: string
+          example: LYO
+        nom:
+          type: string
+          example: Lyon Part-Dieu
+        ville:
+          type: string
+          example: Lyon
+        quartier:
+          type: string
+          example: Part-Dieu
+    Equipement:
+      type: object
+      required: [code, libelle]
+      properties:
+        code:
+          type: string
+          example: visio
+        libelle:
+          type: string
+          example: Visioconférence
+    Salle:
+      type: object
+      required:
+        [id, espace_id, ville, nom, capacite, prix_horaire, equipements]
+      properties:
+        id:
+          type: string
+          example: LYO-01
+        espace_id:
+          type: string
+          example: LYO
+        ville:
+          type: string
+          example: Lyon
+        nom:
+          type: string
+          example: Salle Rhône
+        capacite:
+          type: integer
+          minimum: 1
+          example: 8
+        prix_horaire:
+          type: number
+          description: Prix d'une heure, en euros hors taxes
+          example: 45
+        equipements:
+          type: array
+          description: Codes des équipements, par ordre alphabétique
+          items:
+            type: string
+          example: [ecran, tableau-blanc, visio]
+    Erreur:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          example: "Salle inconnue : LYO-99"

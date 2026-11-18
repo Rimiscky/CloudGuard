@@ -1,0 +1,20 @@
+# Le mot de passe arrive par variable d'environnement
+# (SPRING_DATASOURCE_PASSWORD).
+spring:
+  application:
+    name: reservations
+  datasource:
+    url: jdbc:postgresql://reservations-db:5432/reservations
+    username: reservations
+  jackson:
+    # salleId en Java, salle_id dans le JSON
+    property-naming-strategy: SNAKE_CASE
+  mvc:
+    problemdetails:
+      # erreurs au format de la RFC 9457 (champ "detail")
+      enabled: true
+
+# Adresses des autres services sur le reseau de Docker Compose
+services:
+  catalogue: http://catalogue:3000
+  disponibilites: http://disponibilites:8000
